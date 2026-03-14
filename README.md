@@ -44,6 +44,19 @@ API endpoints:
 
 - `GET /health`
 - `GET /api/hello`
+- `POST /api/auth/signup`
+- `POST /api/auth/login`
+- `POST /api/auth/logout`
+- `GET /api/auth/me`
+- `POST /api/calendars`
+- `GET /api/calendars`
+- `POST /api/posts/sync`
+- `GET /api/posts`
+
+Optional backend environment variables for provider fetches:
+
+- `GETLATE_API_BASE_URL` (defaults to `https://getlate.dev/api/v1`)
+- `GHOST_API_BASE_URL` (used when Ghost calendar profile URL is not set)
 
 Run tests:
 

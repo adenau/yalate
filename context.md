@@ -2,106 +2,127 @@
 
 This file is for coding agents working in this repository.
 
-## What this project is
+## Project summary
 
 **YaLate** = *Yet Another Late Dashboard*.
 
-Goal: provide a calendar-focused dashboard for scheduled social posts, starting with GetLate as a source (and potentially additional publication sources later).
+Current goal: calendar-first dashboard that can authenticate users, register external content calendars (GetLate/Ghost), sync posts into local DB, and display those posts on a React calendar.
 
-## Current architecture
+## Repo architecture
 
-Monorepo with two apps:
+Monorepo:
 
-- `backend/`: Python + Flask API
-- `frontend/`: React + Vite web app
+- `backend/`: Flask API + SQLAlchemy + Alembic migrations + pytest
+- `frontend/`: React + Vite + `react-big-calendar`
+- `docs/`: provider reference docs (`getlate-llms-full.txt`, `ghostblog-llms-full.txt`)
 
-Current hello-world integration is complete:
+## Backend current status
 
-- Backend exposes `GET /api/hello`
-- Frontend fetches `/api/hello` and renders the message
+### Core stack
 
-## Backend status (Flask)
+- App factory + extensions in `backend/app/__init__.py`, `backend/app/extensions.py`
+- Config in `backend/app/config.py`
+  - dev: SQLite (`DATABASE_URL` default)
+  - prod: MySQL (`mysql+pymysql://...`)
+  - tests: in-memory SQLite
+- Auth/session: Flask-Login
+- Migrations: Flask-Migrate/Alembic
 
-Implemented:
+### Domain model
 
-- App factory pattern in `backend/app/__init__.py`
-- SQLAlchemy via Flask extension in `backend/app/extensions.py`
-- Environment-based config in `backend/app/config.py`
-  - Development/default: SQLite
-  - Production: MySQL (`mysql+pymysql://...`)
-  - Testing: in-memory SQLite
-- API routes in `backend/app/routes.py`
-- Entrypoint in `backend/run.py`
-- Basic model placeholder in `backend/app/models.py`
-- Pytest smoke test in `backend/tests/test_api.py`
+In `backend/app/models.py`:
 
-Dependencies are in `backend/requirements.txt` and include:
+- `User` with password hashing and login timestamps
+- `Calendar` with source enum (`getlate`, `ghost_blog`, `wordpress`), encrypted API key, profile metadata
+- `PostType`
+- `Post` linked to `Calendar` and `PostType`
+- Unique constraint for idempotent sync: `(calendar_id, external_id)`
 
-- `Flask`
-- `Flask-SQLAlchemy`
-- `Flask-Cors`
-- `python-dotenv`
-- `pytest`
-- `PyMySQL`
+### Security
 
-## Frontend status (React/Vite)
+- API keys encrypted at rest using Fernet helpers in `backend/app/security.py`
+- Env var: `CALENDAR_KEYS_ENCRYPTION_KEY` (fallback derived from `SECRET_KEY`)
 
-Implemented:
+### API endpoints implemented
 
-- Vite React app scaffold in `frontend/`
-- API proxy in `frontend/vite.config.js`:
-  - `/api` -> `http://127.0.0.1:5000`
-- Main app in `frontend/src/App.jsx` calls `/api/hello`
+- Health/hello: `GET /health`, `GET /api/hello`
+- Auth: `POST /api/auth/signup`, `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`
+- Calendars: `POST /api/calendars`, `GET /api/calendars`
+- Posts:
+  - `POST /api/posts/sync` (pull from providers + upsert into DB)
+  - `GET /api/posts` (read DB-backed posts for current user)
 
-## Environment / run notes
+### Sync service
 
-Python environment:
+Implemented in `backend/app/post_ingestion.py`:
 
-- Project virtual environment is at `.venv/`
-- Typical activation (PowerShell): `\.venv\Scripts\Activate.ps1`
+- Provider fetchers for GetLate and Ghost
+- Upsert behavior by `(calendar_id, external_id)`
+- Post-type auto-create by slug
+- Title/preview normalization:
+  - first 100 chars of content (fallback to title)
+  - line-break preservation + basic HTML cleanup
+- Debug logging around requests and sync counts
+- GetLate pagination now uses documented `limit` + `offset` pattern
 
-Run backend:
+### Sync debugging additions
 
-- `python backend/run.py`
+`POST /api/posts/sync` now supports debug mode (`debug=true` body/query) and returns per-calendar diagnostics:
 
-Run tests:
+- `fetched`, `created`, `updated`
+- `db_post_count`
+- optional error + traceback when debug is enabled
 
-- `cd backend`
-- `pytest`
+## Frontend current status
 
-Run frontend:
+Main app in `frontend/src/App.jsx`:
 
-- `cd frontend`
-- `npm run dev`
+- Login/signup/logout flow
+- Sidebar calendars loaded from backend
+- Add-calendar form (source-aware fields)
+- Manual `Sync Posts` button
+- Sync on load after auth and after calendar creation
+- Events loaded from `GET /api/posts` and rendered via `react-big-calendar`
+- Active/inactive calendar filtering is currently UI-local state (not persisted yet)
 
-Build frontend:
+Styling in `frontend/src/App.css` includes:
 
-- `npm run build`
+- Dashboard/sidebar layout
+- Add-calendar form styles
+- Event content line breaks (`white-space: pre-line`)
 
-## API/domain reference files
+## Migrations status
 
-These docs are available under `docs/` for future integration work:
+Latest migration chain includes:
 
-- `docs/getlate-llms-full.txt` (GetLate API context)
-- `docs/ghostblog-llms-full.txt` (Ghost blog API/context file added by user)
+1. users schema
+2. calendars/post_types/posts
+3. calendar credential/profile fields
+4. unique constraint on posts `(calendar_id, external_id)` (SQLite batch-safe)
 
-Use these files as source context before implementing integrations.
+## Environment notes
 
-## Conventions and intent for future agents
+Backend env example (`backend/.env.example`) includes:
 
-1. Keep backend and frontend as separate projects in the same repo.
-2. Prefer small, incremental changes and keep hello-world flow working.
-3. Maintain DB portability:
-   - local/dev -> SQLite
-   - prod -> MySQL
-4. Add/maintain pytest coverage for backend behavior changes.
-5. Avoid large refactors unless explicitly requested.
+- `CALENDAR_KEYS_ENCRYPTION_KEY`
+- `GETLATE_API_BASE_URL` (default `https://getlate.dev/api/v1`)
+- `GHOST_API_BASE_URL`
+- `DATABASE_URL`
 
-## Recommended next implementation steps
+## Test/build status (latest)
 
-1. Add `Flask-Migrate` + Alembic migrations.
-2. Define core data model(s) for scheduled posts and source mapping.
-3. Add GetLate client/service layer and env-configured API key handling.
-4. Expose first real endpoint (e.g., list scheduled posts normalized for calendar UI).
-5. Replace hello-world frontend with basic calendar/list view consuming that endpoint.
-6. Add tests for service and endpoint behavior.
+- Backend: `14 passed` (`pytest`)
+- Frontend: `npm run build` successful
+
+## Known current caveats
+
+1. If backend code changes while server is running, restart backend before re-testing sync.
+2. Calendar active/inactive toggle is not persisted to backend yet.
+3. If provider response contracts differ from docs, use sync debug payload/logs to inspect raw behavior and adjust mapping.
+
+## Suggested next steps
+
+1. Persist calendar toggle state (`PATCH /api/calendars/<id>` for `is_active`).
+2. Add lightweight in-UI sync diagnostics panel (instead of console-only debug logging).
+3. Add provider-contract tests/mocks for GetLate list-posts response variants.
+4. Add optional background/queued sync strategy and explicit reload semantics.
