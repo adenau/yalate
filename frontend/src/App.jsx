@@ -650,7 +650,7 @@ function App() {
                     value={calendarSource}
                     onChange={(event) => setCalendarSource(event.target.value)}
                   >
-                    <option value="getlate">GetLate</option>
+                    <option value="getlate">Late</option>
                     <option value="ghost_blog">Ghost Blog</option>
                   </select>
                 </label>

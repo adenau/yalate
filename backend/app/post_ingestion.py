@@ -235,9 +235,9 @@ def _fetch_getlate_posts(calendar: Calendar) -> list[dict[str, Any]]:
     if not api_key:
         return []
 
-    base_url = current_app.config["GETLATE_API_BASE_URL"].rstrip("/")
+    base_url = current_app.config["LATE_API_BASE_URL"].rstrip("/")
     current_app.logger.info(
-        "Syncing GetLate posts for calendar_id=%s profile_id=%s",
+        "Syncing Late posts for calendar_id=%s profile_id=%s",
         calendar.id,
         calendar.source_profile_id,
     )
@@ -265,7 +265,7 @@ def _fetch_getlate_posts(calendar: Calendar) -> list[dict[str, Any]]:
             }
 
             current_app.logger.info(
-                "GetLate posts request calendar_id=%s mode=%s page_index=%s params=%s",
+                "Late posts request calendar_id=%s mode=%s page_index=%s params=%s",
                 calendar.id,
                 pagination_mode,
                 page_index,
@@ -281,7 +281,7 @@ def _fetch_getlate_posts(calendar: Calendar) -> list[dict[str, Any]]:
                 )
                 response.raise_for_status()
             except requests.RequestException as exc:
-                raise RuntimeError(f"GetLate fetch failed: {exc}") from exc
+                raise RuntimeError(f"Late fetch failed: {exc}") from exc
 
             payload = response.json()
             if not isinstance(payload, dict):
@@ -292,7 +292,7 @@ def _fetch_getlate_posts(calendar: Calendar) -> list[dict[str, Any]]:
                 break
 
             current_app.logger.info(
-                "GetLate posts response calendar_id=%s mode=%s page_index=%s count=%s",
+                "Late posts response calendar_id=%s mode=%s page_index=%s count=%s",
                 calendar.id,
                 pagination_mode,
                 page_index,
@@ -424,7 +424,7 @@ def _build_ghost_admin_jwt(admin_api_key: str) -> str:
 
 
 def _validate_getlate_credentials(api_key: str, profile_id: str) -> None:
-    base_url = current_app.config["GETLATE_API_BASE_URL"].rstrip("/")
+    base_url = current_app.config["LATE_API_BASE_URL"].rstrip("/")
 
     try:
         response = requests.get(
@@ -437,14 +437,14 @@ def _validate_getlate_credentials(api_key: str, profile_id: str) -> None:
     except requests.HTTPError as exc:
         status_code = exc.response.status_code if exc.response is not None else None
         if status_code == 401:
-            raise RuntimeError("GetLate credentials are unauthorized (401)") from exc
+            raise RuntimeError("Late credentials are unauthorized (401)") from exc
         if status_code == 403:
-            raise RuntimeError("GetLate credentials are forbidden (403)") from exc
+            raise RuntimeError("Late credentials are forbidden (403)") from exc
         if status_code is not None:
-            raise RuntimeError(f"GetLate credential check failed with status {status_code}") from exc
-        raise RuntimeError("GetLate credential check failed with HTTP error") from exc
+            raise RuntimeError(f"Late credential check failed with status {status_code}") from exc
+        raise RuntimeError("Late credential check failed with HTTP error") from exc
     except requests.RequestException as exc:
-        raise RuntimeError(f"GetLate credential check failed: {exc.__class__.__name__}") from exc
+        raise RuntimeError(f"Late credential check failed: {exc.__class__.__name__}") from exc
 
 
 def _validate_ghost_credentials(api_key: str, blog_url: str) -> None:
@@ -505,7 +505,7 @@ def validate_calendar_credentials(
 
     if source == CalendarSource.GETLATE:
         if not source_profile_id:
-            raise RuntimeError("Credential check failed: missing GetLate profile_id")
+            raise RuntimeError("Credential check failed: missing Late profile_id")
         _validate_getlate_credentials(api_key, source_profile_id)
         return
 

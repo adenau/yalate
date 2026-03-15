@@ -13,7 +13,7 @@ def test_calendar_post_schema_relationships():
         post_type = PostType(name="Blog", slug="blog", description="Blog article")
         calendar = Calendar(
             user_id=1,
-            name="GetLate Main",
+            name="Late Main",
             source=CalendarSource.GETLATE,
             external_id="cal_123",
         )
@@ -44,5 +44,5 @@ def test_calendar_post_schema_relationships():
         assert len(saved_calendar.posts) == 1
 
         assert saved_post is not None
-        assert saved_post.calendar.name == "GetLate Main"
+        assert saved_post.calendar.name == "Late Main"
         assert saved_post.post_type.slug == "blog"

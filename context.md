@@ -6,7 +6,7 @@ This file is for coding agents working in this repository.
 
 **YaLate** = *Yet Another Late Dashboard*.
 
-Current goal: calendar-first dashboard that can authenticate users, register external content calendars (GetLate/Ghost), sync posts into local DB, and display those posts on a React calendar.
+Current goal: calendar-first dashboard that can authenticate users, register external content calendars (Late/Ghost), sync posts into local DB, and display those posts on a React calendar.
 
 ## Repo architecture
 
@@ -56,14 +56,14 @@ In `backend/app/models.py`:
 
 Implemented in `backend/app/post_ingestion.py`:
 
-- Provider fetchers for GetLate and Ghost
+- Provider fetchers for Late and Ghost
 - Upsert behavior by `(calendar_id, external_id)`
 - Post-type auto-create by slug
 - Title/preview normalization:
   - first 100 chars of content (fallback to title)
   - line-break preservation + basic HTML cleanup
 - Debug logging around requests and sync counts
-- GetLate pagination now uses documented `limit` + `offset` pattern
+- Late pagination now uses documented `limit` + `offset` pattern
 
 ### Sync debugging additions
 
@@ -105,7 +105,7 @@ Latest migration chain includes:
 Backend env example (`backend/.env.example`) includes:
 
 - `CALENDAR_KEYS_ENCRYPTION_KEY`
-- `GETLATE_API_BASE_URL` (default `https://getlate.dev/api/v1`)
+- `LATE_API_BASE_URL` (default `https://getlate.dev/api/v1`)
 - `GHOST_API_BASE_URL`
 - `DATABASE_URL`
 
@@ -124,5 +124,5 @@ Backend env example (`backend/.env.example`) includes:
 
 1. Persist calendar toggle state (`PATCH /api/calendars/<id>` for `is_active`).
 2. Add lightweight in-UI sync diagnostics panel (instead of console-only debug logging).
-3. Add provider-contract tests/mocks for GetLate list-posts response variants.
+3. Add provider-contract tests/mocks for Late list-posts response variants.
 4. Add optional background/queued sync strategy and explicit reload semantics.

@@ -139,7 +139,7 @@ def test_fetch_getlate_posts_uses_offset_pagination(monkeypatch):
     monkeypatch.setattr("app.post_ingestion.requests.get", fake_get)
 
     app = create_app("testing")
-    app.config["GETLATE_API_BASE_URL"] = "https://getlate.dev/api/v1"
+    app.config["LATE_API_BASE_URL"] = "https://getlate.dev/api/v1"
 
     class FakeCalendar:
         id = 1

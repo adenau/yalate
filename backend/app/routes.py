@@ -167,9 +167,9 @@ def create_calendar():
 
     if source == CalendarSource.GETLATE:
         if not api_key:
-            return jsonify({"error": "GetLate requires api_key"}), 400
+            return jsonify({"error": "Late requires api_key"}), 400
         if not profile_id:
-            return jsonify({"error": "GetLate requires profile_id"}), 400
+            return jsonify({"error": "Late requires profile_id"}), 400
 
         existing = db.session.execute(
             db.select(Calendar).filter_by(
@@ -179,7 +179,7 @@ def create_calendar():
             )
         ).scalar_one_or_none()
         if existing is not None:
-            return jsonify({"error": "Calendar for this GetLate profile already exists"}), 409
+            return jsonify({"error": "Calendar for this Late profile already exists"}), 409
 
         if current_app.config["CALENDAR_VALIDATE_ON_CREATE"]:
             try:
@@ -187,7 +187,7 @@ def create_calendar():
             except RuntimeError as exc:
                 return jsonify({"error": str(exc)}), 422
 
-        calendar_name = provided_name or f"GetLate - {profile_name or profile_id}"
+        calendar_name = provided_name or f"Late - {profile_name or profile_id}"
         calendar = Calendar(
             user_id=current_user.id,
             name=calendar_name,
@@ -283,9 +283,9 @@ def validate_calendar():
 
     if source == CalendarSource.GETLATE:
         if not api_key:
-            return jsonify({"valid": False, "error": "GetLate requires api_key"}), 400
+            return jsonify({"valid": False, "error": "Late requires api_key"}), 400
         if not profile_id:
-            return jsonify({"valid": False, "error": "GetLate requires profile_id"}), 400
+            return jsonify({"valid": False, "error": "Late requires profile_id"}), 400
         source_profile_id = profile_id
     elif source == CalendarSource.GHOST_BLOG:
         if not api_key:
@@ -352,7 +352,7 @@ def update_calendar(calendar_id: int):
         if "profile_id" in payload:
             proposed_profile_id = (payload.get("profile_id") or "").strip()
             if not proposed_profile_id:
-                return jsonify({"error": "GetLate requires profile_id"}), 400
+                return jsonify({"error": "Late requires profile_id"}), 400
 
             existing = db.session.execute(
                 db.select(Calendar)
@@ -364,7 +364,7 @@ def update_calendar(calendar_id: int):
                 .filter(Calendar.id != calendar.id)
             ).scalar_one_or_none()
             if existing is not None:
-                return jsonify({"error": "Calendar for this GetLate profile already exists"}), 409
+                return jsonify({"error": "Calendar for this Late profile already exists"}), 409
 
             source_profile_id = proposed_profile_id
             external_id = proposed_profile_id

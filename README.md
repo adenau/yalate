@@ -6,7 +6,7 @@ Monorepo for a calendar-focused social publishing dashboard.
 
 - `backend/`: Flask API (`Flask`, `Flask-SQLAlchemy`, `pytest`)
 - `frontend/`: React app (`Vite`)
-- `docs/getlate-llms-full.txt`: Downloaded GetLate API LLM documentation
+- `docs/getlate-llms-full.txt`: Downloaded Late API LLM documentation
 
 ## Backend setup (virtual environment)
 
@@ -112,7 +112,7 @@ Calendar setup notes:
 
 Optional backend environment variables for provider fetches:
 
-- `GETLATE_API_BASE_URL` (defaults to `https://getlate.dev/api/v1`)
+- `LATE_API_BASE_URL` (defaults to `https://getlate.dev/api/v1`)
 - `GHOST_API_BASE_URL` (fallback only when a Ghost calendar does not provide `blog_url`)
 - `CALENDAR_VALIDATE_ON_CREATE` (`true`/`false`, default `true`)
 - `CALENDAR_VALIDATE_ON_UPDATE` (`true`/`false`, default `true`)

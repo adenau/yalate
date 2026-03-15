@@ -13,7 +13,7 @@ class BaseConfig:
         "CALENDAR_KEYS_ENCRYPTION_KEY",
         derive_fernet_key(SECRET_KEY),
     )
-    GETLATE_API_BASE_URL = os.getenv("GETLATE_API_BASE_URL", "https://getlate.dev/api/v1")
+    LATE_API_BASE_URL = os.getenv("LATE_API_BASE_URL", "https://getlate.dev/api/v1")
     GHOST_API_BASE_URL = os.getenv("GHOST_API_BASE_URL")
     CALENDAR_VALIDATE_ON_CREATE = _env_flag("CALENDAR_VALIDATE_ON_CREATE", "true")
     CALENDAR_VALIDATE_ON_UPDATE = _env_flag("CALENDAR_VALIDATE_ON_UPDATE", "true")

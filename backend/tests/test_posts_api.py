@@ -28,7 +28,7 @@ def test_sync_posts_endpoint_calls_sync_and_returns_summary(monkeypatch):
 
         calendar = Calendar(
             user_id=user_id,
-            name="GetLate Team",
+            name="Late Team",
             source=CalendarSource.GETLATE,
             source_profile_id="profile_123",
         )
@@ -42,7 +42,7 @@ def test_sync_posts_endpoint_calls_sync_and_returns_summary(monkeypatch):
         updated = 1
 
     def fake_sync(calendar):
-        assert calendar.name == "GetLate Team"
+        assert calendar.name == "Late Team"
         return FakeResult()
 
     monkeypatch.setattr("app.routes.sync_calendar_posts", fake_sync)
