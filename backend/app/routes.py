@@ -1,15 +1,28 @@
 from datetime import UTC, datetime
 import traceback
+from urllib.parse import urlparse
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, current_app, jsonify, request
 from flask_login import current_user, login_required, login_user, logout_user
 
 from .extensions import db
 from .models import Calendar, CalendarSource, Post, User
-from .post_ingestion import sync_calendar_posts
+from .post_ingestion import sync_calendar_posts, validate_calendar_credentials
 
 
 api_bp = Blueprint("api", __name__)
+
+
+def _parse_and_normalize_http_url(raw_url: str) -> tuple[str, str] | None:
+    candidate = (raw_url or "").strip()
+    if not candidate:
+        return None
+
+    parsed = urlparse(candidate)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return None
+
+    return candidate.rstrip("/"), parsed.netloc
 
 
 def serialize_calendar(calendar: Calendar) -> dict:
@@ -145,6 +158,7 @@ def create_calendar():
     provided_name = (payload.get("name") or "").strip()
     profile_id = (payload.get("profile_id") or "").strip()
     profile_name = (payload.get("profile_name") or "").strip() or None
+    blog_url = (payload.get("blog_url") or "").strip()
 
     try:
         source = CalendarSource(source_raw)
@@ -167,6 +181,12 @@ def create_calendar():
         if existing is not None:
             return jsonify({"error": "Calendar for this GetLate profile already exists"}), 409
 
+        if current_app.config["CALENDAR_VALIDATE_ON_CREATE"]:
+            try:
+                validate_calendar_credentials(source, api_key, profile_id)
+            except RuntimeError as exc:
+                return jsonify({"error": str(exc)}), 422
+
         calendar_name = provided_name or f"GetLate - {profile_name or profile_id}"
         calendar = Calendar(
             user_id=current_user.id,
@@ -181,14 +201,39 @@ def create_calendar():
     elif source == CalendarSource.GHOST_BLOG:
         if not api_key:
             return jsonify({"error": "Ghost Blog requires api_key"}), 400
+        if not blog_url:
+            return jsonify({"error": "Ghost Blog requires blog_url"}), 400
+
+        normalized_blog_data = _parse_and_normalize_http_url(blog_url)
+        if normalized_blog_data is None:
+            return jsonify({"error": "Ghost Blog blog_url must be a valid http(s) URL"}), 400
+
+        normalized_blog_url, blog_hostname = normalized_blog_data
+
+        existing = db.session.execute(
+            db.select(Calendar).filter_by(
+                user_id=current_user.id,
+                source=CalendarSource.GHOST_BLOG,
+                source_profile_id=normalized_blog_url,
+            )
+        ).scalar_one_or_none()
+        if existing is not None:
+            return jsonify({"error": "Calendar for this Ghost blog URL already exists"}), 409
+
+        if current_app.config["CALENDAR_VALIDATE_ON_CREATE"]:
+            try:
+                validate_calendar_credentials(source, api_key, normalized_blog_url)
+            except RuntimeError as exc:
+                return jsonify({"error": str(exc)}), 422
 
         calendar_name = provided_name or "Ghost Blog"
         calendar = Calendar(
             user_id=current_user.id,
             name=calendar_name,
             source=source,
-            source_profile_id=None,
-            source_profile_name=None,
+            source_profile_id=normalized_blog_url,
+            source_profile_name=blog_hostname,
+            external_id=normalized_blog_url,
             is_active=True,
         )
         calendar.set_api_key(api_key)
@@ -221,12 +266,179 @@ def list_calendars():
     return jsonify({"calendars": [serialize_calendar(calendar) for calendar in calendars]})
 
 
+@api_bp.post("/calendars/validate")
+@login_required
+def validate_calendar():
+    payload = request.get_json(silent=True) or {}
+
+    source_raw = (payload.get("source") or "").strip().lower()
+    api_key = (payload.get("api_key") or "").strip()
+    profile_id = (payload.get("profile_id") or "").strip()
+    blog_url = (payload.get("blog_url") or "").strip()
+
+    try:
+        source = CalendarSource(source_raw)
+    except ValueError:
+        return jsonify({"valid": False, "error": "Invalid source"}), 400
+
+    if source == CalendarSource.GETLATE:
+        if not api_key:
+            return jsonify({"valid": False, "error": "GetLate requires api_key"}), 400
+        if not profile_id:
+            return jsonify({"valid": False, "error": "GetLate requires profile_id"}), 400
+        source_profile_id = profile_id
+    elif source == CalendarSource.GHOST_BLOG:
+        if not api_key:
+            return jsonify({"valid": False, "error": "Ghost Blog requires api_key"}), 400
+        if not blog_url:
+            return jsonify({"valid": False, "error": "Ghost Blog requires blog_url"}), 400
+
+        normalized_blog_data = _parse_and_normalize_http_url(blog_url)
+        if normalized_blog_data is None:
+            return jsonify(
+                {"valid": False, "error": "Ghost Blog blog_url must be a valid http(s) URL"},
+            ), 400
+
+        source_profile_id, _ = normalized_blog_data
+    else:
+        return jsonify({"valid": False, "error": "Source not supported yet"}), 400
+
+    try:
+        validate_calendar_credentials(source, api_key, source_profile_id)
+    except RuntimeError as exc:
+        return jsonify({"valid": False, "error": str(exc)}), 422
+
+    return jsonify({"valid": True, "message": "Credentials validated"})
+
+
+@api_bp.patch("/calendars/<int:calendar_id>")
+@login_required
+def update_calendar(calendar_id: int):
+    payload = request.get_json(silent=True) or {}
+
+    calendar = db.session.execute(
+        db.select(Calendar).filter_by(id=calendar_id, user_id=current_user.id)
+    ).scalar_one_or_none()
+    if calendar is None:
+        return jsonify({"error": "Calendar not found"}), 404
+
+    calendar_name = calendar.name
+    is_active = calendar.is_active
+    source_profile_id = calendar.source_profile_id
+    source_profile_name = calendar.source_profile_name
+    external_id = calendar.external_id
+    api_key_override: str | None = None
+    should_validate = False
+
+    if "name" in payload:
+        proposed_name = (payload.get("name") or "").strip()
+        if not proposed_name:
+            return jsonify({"error": "Calendar name cannot be empty"}), 400
+        calendar_name = proposed_name
+
+    if "is_active" in payload:
+        proposed_active = payload.get("is_active")
+        if not isinstance(proposed_active, bool):
+            return jsonify({"error": "is_active must be a boolean"}), 400
+        is_active = proposed_active
+
+    if "api_key" in payload:
+        api_key_override = (payload.get("api_key") or "").strip()
+        if not api_key_override:
+            return jsonify({"error": "api_key cannot be empty"}), 400
+        should_validate = True
+
+    if calendar.source == CalendarSource.GETLATE:
+        if "profile_id" in payload:
+            proposed_profile_id = (payload.get("profile_id") or "").strip()
+            if not proposed_profile_id:
+                return jsonify({"error": "GetLate requires profile_id"}), 400
+
+            existing = db.session.execute(
+                db.select(Calendar)
+                .filter_by(
+                    user_id=current_user.id,
+                    source=CalendarSource.GETLATE,
+                    source_profile_id=proposed_profile_id,
+                )
+                .filter(Calendar.id != calendar.id)
+            ).scalar_one_or_none()
+            if existing is not None:
+                return jsonify({"error": "Calendar for this GetLate profile already exists"}), 409
+
+            source_profile_id = proposed_profile_id
+            external_id = proposed_profile_id
+            should_validate = True
+
+        if "profile_name" in payload:
+            source_profile_name = (payload.get("profile_name") or "").strip() or None
+    elif calendar.source == CalendarSource.GHOST_BLOG:
+        if "blog_url" in payload:
+            normalized_blog_data = _parse_and_normalize_http_url(payload.get("blog_url") or "")
+            if normalized_blog_data is None:
+                return jsonify({"error": "Ghost Blog blog_url must be a valid http(s) URL"}), 400
+
+            normalized_blog_url, blog_hostname = normalized_blog_data
+
+            existing = db.session.execute(
+                db.select(Calendar)
+                .filter_by(
+                    user_id=current_user.id,
+                    source=CalendarSource.GHOST_BLOG,
+                    source_profile_id=normalized_blog_url,
+                )
+                .filter(Calendar.id != calendar.id)
+            ).scalar_one_or_none()
+            if existing is not None:
+                return jsonify({"error": "Calendar for this Ghost blog URL already exists"}), 409
+
+            source_profile_id = normalized_blog_url
+            source_profile_name = blog_hostname
+            external_id = normalized_blog_url
+            should_validate = True
+
+    if should_validate and current_app.config["CALENDAR_VALIDATE_ON_UPDATE"]:
+        api_key_for_validation = api_key_override or calendar.get_api_key() or ""
+        try:
+            validate_calendar_credentials(calendar.source, api_key_for_validation, source_profile_id)
+        except RuntimeError as exc:
+            return jsonify({"error": str(exc)}), 422
+
+    calendar.name = calendar_name
+    calendar.is_active = is_active
+    calendar.source_profile_id = source_profile_id
+    calendar.source_profile_name = source_profile_name
+    calendar.external_id = external_id
+
+    if api_key_override:
+        calendar.set_api_key(api_key_override)
+
+    db.session.commit()
+    return jsonify({"message": "Calendar updated", "calendar": serialize_calendar(calendar)})
+
+
+@api_bp.delete("/calendars/<int:calendar_id>")
+@login_required
+def delete_calendar(calendar_id: int):
+    calendar = db.session.execute(
+        db.select(Calendar).filter_by(id=calendar_id, user_id=current_user.id)
+    ).scalar_one_or_none()
+    if calendar is None:
+        return jsonify({"error": "Calendar not found"}), 404
+
+    db.session.delete(calendar)
+    db.session.commit()
+    return jsonify({"message": "Calendar deleted"})
+
+
 def serialize_post(post):
     return {
         "id": post.id,
         "calendar_id": post.calendar_id,
         "title": post.title,
         "status": post.status,
+        "post_type_name": post.post_type.name if post.post_type else None,
+        "post_type_slug": post.post_type.slug if post.post_type else None,
         "scheduled_for": post.scheduled_for.isoformat() if post.scheduled_for else None,
         "published_at": post.published_at.isoformat() if post.published_at else None,
     }
@@ -279,7 +491,9 @@ def sync_posts():
                 }
             )
 
-    return jsonify({"results": results, "debug": debug_enabled})
+    has_errors = any(result.get("error") for result in results)
+    status_code = 207 if has_errors else 200
+    return jsonify({"results": results, "debug": debug_enabled}), status_code
 
 
 @api_bp.route("/posts", methods=["GET"])

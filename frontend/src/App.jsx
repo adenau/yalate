@@ -16,6 +16,72 @@ const localizer = dateFnsLocalizer({
   locales
 })
 
+const SOURCE_LABELS = {
+  ghost_blog: 'Ghost Blog',
+  getlate: 'Late'
+}
+
+const TYPE_LABEL_OVERRIDES = {
+  'email-only': 'Email',
+  linkedin: 'Linked In',
+  'multi-platform': 'Multi Platform'
+}
+
+const LEGEND_COLOR_PALETTE = [
+  '#0ea5e9',
+  '#14b8a6',
+  '#8b5cf6',
+  '#f59e0b',
+  '#ef4444',
+  '#10b981',
+  '#6366f1'
+]
+
+const toSlug = (value) =>
+  String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+
+const toTypeKind = (postItem) => {
+  if (postItem.post_type_slug) {
+    return toSlug(postItem.post_type_slug)
+  }
+  if (postItem.post_type_name) {
+    return toSlug(postItem.post_type_name)
+  }
+  return 'post'
+}
+
+const toTypeLabel = (kind) => {
+  if (TYPE_LABEL_OVERRIDES[kind]) {
+    return TYPE_LABEL_OVERRIDES[kind]
+  }
+  return kind
+    .split('-')
+    .filter(Boolean)
+    .map((chunk) => chunk[0].toUpperCase() + chunk.slice(1))
+    .join(' ')
+}
+
+const hashString = (value) => {
+  let hash = 0
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) >>> 0
+  }
+  return hash
+}
+
+const getLegendKey = (calendarId, cardKind) => `${calendarId}:${cardKind}`
+
+const getLegendColor = (calendarId, cardKind) => {
+  const hashed = hashString(getLegendKey(calendarId, cardKind))
+  return LEGEND_COLOR_PALETTE[hashed % LEGEND_COLOR_PALETTE.length]
+}
+
+const EVENT_PREVIEW_LENGTH = 18
+
 function App() {
   const [mode, setMode] = useState('login')
   const [email, setEmail] = useState('')
@@ -37,14 +103,30 @@ function App() {
   const [calendarApiKey, setCalendarApiKey] = useState('')
   const [calendarProfileId, setCalendarProfileId] = useState('')
   const [calendarProfileName, setCalendarProfileName] = useState('')
+  const [calendarBlogUrl, setCalendarBlogUrl] = useState('')
+  const [credentialCheckLoading, setCredentialCheckLoading] = useState(false)
+  const [editingCalendarId, setEditingCalendarId] = useState(null)
+  const [editCalendarName, setEditCalendarName] = useState('')
+  const [editCalendarApiKey, setEditCalendarApiKey] = useState('')
+  const [editCalendarProfileId, setEditCalendarProfileId] = useState('')
+  const [editCalendarProfileName, setEditCalendarProfileName] = useState('')
+  const [editCalendarBlogUrl, setEditCalendarBlogUrl] = useState('')
+  const [visibleLegendKeys, setVisibleLegendKeys] = useState({})
 
-  const activeCalendarIds = calendars
-    .filter((calendarItem) => calendarItem.active)
-    .map((calendarItem) => calendarItem.id)
+  const calendarTypeCounts = events.reduce((accumulator, eventItem) => {
+    const calendarId = eventItem.calendarId
+    const kind = eventItem.cardKind || 'post'
+    if (!accumulator[calendarId]) {
+      accumulator[calendarId] = {}
+    }
+    accumulator[calendarId][kind] = (accumulator[calendarId][kind] || 0) + 1
+    return accumulator
+  }, {})
 
-  const visibleEvents = events.filter((eventItem) =>
-    activeCalendarIds.includes(eventItem.calendarId)
-  )
+  const visibleEvents = events.filter((eventItem) => {
+    const legendKey = getLegendKey(eventItem.calendarId, eventItem.cardKind)
+    return visibleLegendKeys[legendKey] !== false
+  })
 
   const resetCalendarForm = () => {
     setCalendarSource('getlate')
@@ -52,6 +134,17 @@ function App() {
     setCalendarApiKey('')
     setCalendarProfileId('')
     setCalendarProfileName('')
+    setCalendarBlogUrl('')
+    setCredentialCheckLoading(false)
+  }
+
+  const resetEditCalendarForm = () => {
+    setEditingCalendarId(null)
+    setEditCalendarName('')
+    setEditCalendarApiKey('')
+    setEditCalendarProfileId('')
+    setEditCalendarProfileName('')
+    setEditCalendarBlogUrl('')
   }
 
   const fetchSession = async () => {
@@ -80,7 +173,9 @@ function App() {
         id: calendarItem.id,
         name: calendarItem.name,
         source: calendarItem.source,
-        active: calendarItem.is_active
+        active: calendarItem.is_active,
+        sourceProfileId: calendarItem.source_profile_id,
+        sourceProfileName: calendarItem.source_profile_name
       }))
       setCalendars(dbCalendars)
     } finally {
@@ -100,13 +195,69 @@ function App() {
     }
 
     const end = new Date(start.getTime() + 60 * 60 * 1000)
+    const cardKind = toTypeKind(postItem)
     return {
       id: postItem.id,
       title: postItem.title,
       start,
       end,
-      calendarId: postItem.calendar_id
+      calendarId: postItem.calendar_id,
+      postTypeName: postItem.post_type_name,
+      postTypeSlug: postItem.post_type_slug,
+      status: postItem.status,
+      cardKind
     }
+  }
+
+  const truncateTitle = (value, maxLength = EVENT_PREVIEW_LENGTH) => {
+    if (!value || value.length <= maxLength) {
+      return value
+    }
+    return `${value.slice(0, maxLength)}…`
+  }
+
+  const toTooltipDate = (dateValue) => {
+    if (!(dateValue instanceof Date) || Number.isNaN(dateValue.getTime())) {
+      return 'Unknown date'
+    }
+    return dateValue.toLocaleString()
+  }
+
+  const buildEventTooltip = (event) => {
+    const lines = [
+      event.title || 'Untitled',
+      `Type: ${toTypeLabel(event.cardKind)}`,
+      `Status: ${event.status || 'unknown'}`,
+      `Start: ${toTooltipDate(event.start)}`
+    ]
+    return lines.join('\n')
+  }
+
+  const eventPropGetter = (eventItem) => {
+    const eventColor = getLegendColor(eventItem.calendarId, eventItem.cardKind)
+    return {
+      style: {
+        backgroundColor: eventColor,
+        borderColor: eventColor
+      }
+    }
+  }
+
+  const EventCardContent = ({ event }) => {
+    const badgeText = toTypeLabel(event.cardKind)
+    return (
+      <div className="event-card-content">
+        <strong>{badgeText}:</strong> {truncateTitle(event.title)}
+      </div>
+    )
+  }
+
+  const toggleLegendVisibility = (calendarId, cardKind) => {
+    const legendKey = getLegendKey(calendarId, cardKind)
+    setVisibleLegendKeys((previous) => ({
+      ...previous,
+      [legendKey]: previous[legendKey] === false
+    }))
   }
 
   const loadPosts = async () => {
@@ -125,7 +276,7 @@ function App() {
     setEvents(mappedEvents)
   }
 
-  const syncAndLoadPosts = async () => {
+  const syncAndLoadPosts = async (calendarId = null) => {
     setPostLoading(true)
     setCalendarError('')
 
@@ -136,15 +287,17 @@ function App() {
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ debug: true })
+        body: JSON.stringify({
+          debug: true,
+          calendar_id: calendarId || undefined
+        })
       })
 
-      if (!response.ok) {
-        const data = await response.json()
-        throw new Error(data.error || 'Failed to sync posts')
+      const syncData = await response.json()
+      if (response.status !== 200 && response.status !== 207) {
+        throw new Error(syncData.error || 'Failed to sync posts')
       }
 
-      const syncData = await response.json()
       console.log('Sync debug results:', syncData)
       const syncErrors = (syncData.results || []).filter((resultItem) => resultItem.error)
       if (syncErrors.length > 0) {
@@ -177,17 +330,31 @@ function App() {
     if (!authUser) {
       setCalendars([])
       setEvents([])
+      setVisibleLegendKeys({})
       return
     }
 
     loadCalendars()
-      .then(() => syncAndLoadPosts())
+      .then(() => loadPosts())
       .catch((err) => {
         setCalendarLoading(false)
         setPostLoading(false)
         setCalendarError(err.message)
       })
   }, [authUser])
+
+  useEffect(() => {
+    setVisibleLegendKeys((previous) => {
+      const next = { ...previous }
+      events.forEach((eventItem) => {
+        const legendKey = getLegendKey(eventItem.calendarId, eventItem.cardKind)
+        if (next[legendKey] === undefined) {
+          next[legendKey] = true
+        }
+      })
+      return next
+    })
+  }, [events])
 
   const handleSubmit = async (event) => {
     event.preventDefault()
@@ -240,16 +407,157 @@ function App() {
     setAuthUser(null)
     setShowAddCalendarForm(false)
     resetCalendarForm()
+    resetEditCalendarForm()
   }
 
-  const toggleCalendar = (calendarId) => {
-    setCalendars((previousCalendars) =>
-      previousCalendars.map((calendarItem) =>
-        calendarItem.id === calendarId
-          ? { ...calendarItem, active: !calendarItem.active }
-          : calendarItem
-      )
+  const validateCalendarPayload = async (payload) => {
+    setCredentialCheckLoading(true)
+
+    try {
+      const response = await fetch('/api/calendars/validate', {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      })
+
+      const data = await response.json()
+      if (!response.ok || !data.valid) {
+        throw new Error(data.error || 'Credential check failed')
+      }
+
+      return data
+    } finally {
+      setCredentialCheckLoading(false)
+    }
+  }
+
+  const handleCheckCredentials = async () => {
+    setCalendarError('')
+    setCalendarInfo('')
+
+    const payload = {
+      source: calendarSource,
+      api_key: calendarApiKey
+    }
+
+    if (calendarSource === 'getlate') {
+      payload.profile_id = calendarProfileId
+    }
+
+    if (calendarSource === 'ghost_blog') {
+      payload.blog_url = calendarBlogUrl
+    }
+
+    try {
+      await validateCalendarPayload(payload)
+      setCalendarInfo('Credentials validated successfully')
+    } catch (checkError) {
+      setCalendarError(checkError.message || 'Credential check failed')
+    }
+  }
+
+  const startEditCalendar = (calendarItem) => {
+    setEditingCalendarId(calendarItem.id)
+    setEditCalendarName(calendarItem.name || '')
+    setEditCalendarApiKey('')
+
+    if (calendarItem.source === 'getlate') {
+      setEditCalendarProfileId(calendarItem.sourceProfileId || '')
+      setEditCalendarProfileName(calendarItem.sourceProfileName || '')
+      setEditCalendarBlogUrl('')
+      return
+    }
+
+    if (calendarItem.source === 'ghost_blog') {
+      setEditCalendarBlogUrl(calendarItem.sourceProfileId || '')
+      setEditCalendarProfileId('')
+      setEditCalendarProfileName('')
+      return
+    }
+
+    setEditCalendarProfileId('')
+    setEditCalendarProfileName('')
+    setEditCalendarBlogUrl('')
+  }
+
+  const handleUpdateCalendar = async (event, calendarItem) => {
+    event.preventDefault()
+    setCalendarError('')
+    setCalendarInfo('')
+
+    const payload = {
+      name: editCalendarName
+    }
+
+    if (editCalendarApiKey.trim()) {
+      payload.api_key = editCalendarApiKey.trim()
+    }
+
+    if (calendarItem.source === 'getlate') {
+      payload.profile_id = editCalendarProfileId
+      payload.profile_name = editCalendarProfileName || undefined
+    }
+
+    if (calendarItem.source === 'ghost_blog') {
+      payload.blog_url = editCalendarBlogUrl
+    }
+
+    const response = await fetch(`/api/calendars/${calendarItem.id}`, {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    })
+
+    const data = await response.json()
+    if (!response.ok) {
+      setCalendarError(data.error || 'Failed to update calendar')
+      return
+    }
+
+    setCalendarInfo('Calendar updated successfully')
+    resetEditCalendarForm()
+    await loadCalendars()
+    await syncAndLoadPosts(calendarItem.id)
+  }
+
+  const handleDeleteCalendar = async (calendarItem) => {
+    const shouldDelete = window.confirm(
+      `Delete calendar "${calendarItem.name}"? This also removes synced posts.`
     )
+    if (!shouldDelete) {
+      return
+    }
+
+    setCalendarError('')
+    setCalendarInfo('')
+
+    const response = await fetch(`/api/calendars/${calendarItem.id}`, {
+      method: 'DELETE',
+      credentials: 'include'
+    })
+
+    const data = await response.json()
+    if (!response.ok) {
+      setCalendarError(data.error || 'Failed to delete calendar')
+      return
+    }
+
+    setCalendarInfo('Calendar deleted successfully')
+    if (editingCalendarId === calendarItem.id) {
+      resetEditCalendarForm()
+    }
+    await loadCalendars()
+    await loadPosts()
+  }
+
+  const handleSyncCalendar = async (calendarItem) => {
+    await syncAndLoadPosts(calendarItem.id)
   }
 
   const handleCreateCalendar = async (event) => {
@@ -268,6 +576,17 @@ function App() {
       payload.profile_name = calendarProfileName || undefined
     }
 
+    if (calendarSource === 'ghost_blog') {
+      payload.blog_url = calendarBlogUrl
+    }
+
+    try {
+      await validateCalendarPayload(payload)
+    } catch (checkError) {
+      setCalendarError(checkError.message || 'Credential check failed')
+      return
+    }
+
     const response = await fetch('/api/calendars', {
       method: 'POST',
       credentials: 'include',
@@ -284,8 +603,9 @@ function App() {
     }
 
     setCalendarInfo('Calendar created successfully')
+    const newCalendarId = data.calendar?.id || null
     await loadCalendars()
-    await syncAndLoadPosts()
+    await syncAndLoadPosts(newCalendarId)
     setShowAddCalendarForm(false)
     resetCalendarForm()
   }
@@ -313,14 +633,6 @@ function App() {
               <h2>Calendars</h2>
               <div className="sidebar-actions">
                 <button
-                  className="tab-btn"
-                  type="button"
-                  onClick={syncAndLoadPosts}
-                  disabled={postLoading}
-                >
-                  Sync Posts
-                </button>
-                <button
                   className="primary-btn"
                   type="button"
                   onClick={() => setShowAddCalendarForm((previousValue) => !previousValue)}
@@ -344,7 +656,7 @@ function App() {
                 </label>
 
                 <label>
-                  API Key
+                  {calendarSource === 'ghost_blog' ? 'API Key (Content or Admin)' : 'API Key'}
                   <input
                     type="password"
                     value={calendarApiKey}
@@ -352,6 +664,12 @@ function App() {
                     required
                   />
                 </label>
+
+                {calendarSource === 'ghost_blog' ? (
+                  <p className="calendar-meta">
+                    Use Admin API key (`id:secret`) to include scheduled and email-only items.
+                  </p>
+                ) : null}
 
                 <label>
                   Calendar Name (optional)
@@ -384,7 +702,28 @@ function App() {
                   </>
                 ) : null}
 
+                {calendarSource === 'ghost_blog' ? (
+                  <label>
+                    Blog URL
+                    <input
+                      type="url"
+                      value={calendarBlogUrl}
+                      onChange={(event) => setCalendarBlogUrl(event.target.value)}
+                      placeholder="https://your-blog.example"
+                      required
+                    />
+                  </label>
+                ) : null}
+
                 <div className="add-calendar-actions">
+                  <button
+                    className="tab-btn"
+                    type="button"
+                    onClick={handleCheckCredentials}
+                    disabled={credentialCheckLoading}
+                  >
+                    Check Credentials
+                  </button>
                   <button className="primary-btn" type="submit">
                     Save
                   </button>
@@ -411,15 +750,131 @@ function App() {
               {calendars.length === 0 ? <li className="calendar-meta">No calendars found.</li> : null}
               {calendars.map((calendarItem) => (
                 <li key={calendarItem.id}>
-                  <label className="calendar-toggle">
-                    <input
-                      type="checkbox"
-                      checked={calendarItem.active}
-                      onChange={() => toggleCalendar(calendarItem.id)}
-                    />
-                    <span>{calendarItem.name}</span>
-                    <small className="calendar-source">{calendarItem.source}</small>
-                  </label>
+                  <div className="calendar-header-row">
+                    <span className="calendar-title-line">
+                      {calendarItem.name} - {SOURCE_LABELS[calendarItem.source] || calendarItem.source}
+                    </span>
+                    <div className="calendar-item-actions">
+                      <button
+                        className="icon-btn"
+                        type="button"
+                        onClick={() => handleSyncCalendar(calendarItem)}
+                        aria-label="Sync calendar"
+                        title="Sync calendar"
+                        disabled={postLoading}
+                      >
+                        🔄
+                      </button>
+                      <button
+                        className="icon-btn"
+                        type="button"
+                        onClick={() => startEditCalendar(calendarItem)}
+                        aria-label="Edit calendar"
+                        title="Edit calendar"
+                      >
+                        ✏️
+                      </button>
+                      <button
+                        className="icon-btn"
+                        type="button"
+                        onClick={() => handleDeleteCalendar(calendarItem)}
+                        aria-label="Delete calendar"
+                        title="Delete calendar"
+                      >
+                        🗑️
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="calendar-legend-list">
+                    {Object.entries(calendarTypeCounts[calendarItem.id] || {})
+                      .sort((left, right) => left[0].localeCompare(right[0]))
+                      .map(([kind, count]) => {
+                        const legendKey = getLegendKey(calendarItem.id, kind)
+                        const legendColor = getLegendColor(calendarItem.id, kind)
+                        return (
+                          <label className="legend-row" key={legendKey}>
+                            <span className="legend-chip" style={{ backgroundColor: legendColor }} />
+                            <span>{toTypeLabel(kind)}</span>
+                            <small>{count}</small>
+                            <input
+                              type="checkbox"
+                              checked={visibleLegendKeys[legendKey] !== false}
+                              onChange={() => toggleLegendVisibility(calendarItem.id, kind)}
+                            />
+                          </label>
+                        )
+                      })}
+                  </div>
+
+                  {editingCalendarId === calendarItem.id ? (
+                    <form
+                      className="add-calendar-form calendar-edit-form"
+                      onSubmit={(event) => handleUpdateCalendar(event, calendarItem)}
+                    >
+                      <label>
+                        Name
+                        <input
+                          type="text"
+                          value={editCalendarName}
+                          onChange={(event) => setEditCalendarName(event.target.value)}
+                          required
+                        />
+                      </label>
+
+                      {calendarItem.source === 'getlate' ? (
+                        <>
+                          <label>
+                            Profile ID
+                            <input
+                              type="text"
+                              value={editCalendarProfileId}
+                              onChange={(event) => setEditCalendarProfileId(event.target.value)}
+                              required
+                            />
+                          </label>
+                          <label>
+                            Profile Name (optional)
+                            <input
+                              type="text"
+                              value={editCalendarProfileName}
+                              onChange={(event) => setEditCalendarProfileName(event.target.value)}
+                            />
+                          </label>
+                        </>
+                      ) : null}
+
+                      {calendarItem.source === 'ghost_blog' ? (
+                        <label>
+                          Blog URL
+                          <input
+                            type="url"
+                            value={editCalendarBlogUrl}
+                            onChange={(event) => setEditCalendarBlogUrl(event.target.value)}
+                            required
+                          />
+                        </label>
+                      ) : null}
+
+                      <label>
+                        API Key (optional, rotate to Content or Admin key)
+                        <input
+                          type="password"
+                          value={editCalendarApiKey}
+                          onChange={(event) => setEditCalendarApiKey(event.target.value)}
+                        />
+                      </label>
+
+                      <div className="add-calendar-actions">
+                        <button className="primary-btn" type="submit">
+                          Update
+                        </button>
+                        <button className="tab-btn" type="button" onClick={resetEditCalendarForm}>
+                          Cancel
+                        </button>
+                      </div>
+                    </form>
+                  ) : null}
                 </li>
               ))}
             </ul>
@@ -434,6 +889,9 @@ function App() {
           <Calendar
             localizer={localizer}
             events={visibleEvents}
+            tooltipAccessor={(event) => buildEventTooltip(event)}
+            eventPropGetter={eventPropGetter}
+            components={{ event: EventCardContent }}
             startAccessor="start"
             endAccessor="end"
             views={["month", "week", "day", "agenda"]}

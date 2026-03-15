@@ -57,6 +57,40 @@ def test_sync_posts_endpoint_calls_sync_and_returns_summary(monkeypatch):
     assert payload["results"][0]["updated"] == 1
 
 
+def test_sync_posts_returns_207_when_calendar_errors(monkeypatch):
+    app = create_app("testing")
+    setup_test_db(app)
+    client = app.test_client()
+
+    signup_response = _create_user(client, email="posts-errors@example.com")
+    assert signup_response.status_code == 201
+
+    with app.app_context():
+        user_id = signup_response.get_json()["user"]["id"]
+
+        calendar = Calendar(
+            user_id=user_id,
+            name="Ghost Team",
+            source=CalendarSource.GHOST_BLOG,
+            source_profile_id="https://example.com",
+        )
+        calendar.set_api_key("content_key")
+        db.session.add(calendar)
+        db.session.commit()
+
+    def fake_sync(_calendar):
+        raise RuntimeError("Ghost fetch failed: unauthorized (401)")
+
+    monkeypatch.setattr("app.routes.sync_calendar_posts", fake_sync)
+
+    response = client.post("/api/posts/sync", json={"debug": True})
+    assert response.status_code == 207
+
+    payload = response.get_json()
+    assert len(payload["results"]) == 1
+    assert "error" in payload["results"][0]
+
+
 def test_list_posts_returns_only_logged_in_users_posts():
     app = create_app("testing")
     setup_test_db(app)
@@ -99,3 +133,5 @@ def test_list_posts_returns_only_logged_in_users_posts():
     assert len(payload["posts"]) == 1
     assert payload["posts"][0]["title"] == "Scheduled Post"
     assert payload["posts"][0]["calendar_id"] is not None
+    assert payload["posts"][0]["post_type_name"] == "General"
+    assert payload["posts"][0]["post_type_slug"] == "general"

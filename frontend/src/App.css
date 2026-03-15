@@ -71,7 +71,7 @@ body {
   margin: 0.75rem 0 0;
   display: flex;
   flex-direction: column;
-  gap: 0.65rem;
+  gap: 0.9rem;
 }
 
 .add-calendar-form {
@@ -108,6 +108,66 @@ body {
   display: flex;
   gap: 0.6rem;
   align-items: center;
+}
+
+.calendar-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.calendar-title-line {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.legend-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  gap: 0.45rem;
+  align-items: center;
+  font-size: 0.85rem;
+}
+
+.legend-chip {
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 999px;
+  display: inline-block;
+}
+
+.calendar-item-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.calendar-legend-list {
+  margin-top: 0.35rem;
+  padding-left: 0.95rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.icon-btn {
+  border: 1px solid #d2d6db;
+  background: #fff;
+  border-radius: 0.45rem;
+  width: 1.9rem;
+  height: 1.9rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+}
+
+.icon-btn:hover {
+  background: #f3f4f6;
+}
+
+.calendar-edit-form {
+  margin-top: 0.5rem;
 }
 
 .calendar-source {
@@ -148,7 +208,31 @@ body {
 }
 
 .calendar-main .rbc-event-content {
-  white-space: pre-line;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.calendar-main .rbc-event.event-post {
+  background: #2563eb;
+  border-color: #1d4ed8;
+}
+
+.calendar-main .rbc-event.event-email-only {
+  background: #7c3aed;
+  border-color: #6d28d9;
+}
+
+.event-card-content {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.calendar-main .rbc-show-more {
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 h1 {
