@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Calendar, dateFnsLocalizer } from 'react-big-calendar'
 import { format, getDay, parse, startOfWeek } from 'date-fns'
 import { enUS } from 'date-fns/locale'
@@ -27,14 +27,31 @@ const TYPE_LABEL_OVERRIDES = {
   'multi-platform': 'Multi Platform'
 }
 
-const LEGEND_COLOR_PALETTE = [
-  '#0ea5e9',
-  '#14b8a6',
-  '#8b5cf6',
-  '#f59e0b',
-  '#ef4444',
-  '#10b981',
-  '#6366f1'
+const DISTINCT_COLOR_PALETTE = [
+  '#2563eb',
+  '#4c4c4c',
+  '#16a34a',
+  '#7c3aed',
+  '#ff0000',
+  '#0891b2',
+  '#000000',
+  '#faab00',
+  '#0f766e',
+  '#ff00ee',
+  '#059669',
+  '#c2410c',
+  '#0e7490',
+  '#b91c1c',
+  '#1d4ed8',
+  '#15803d',
+  '#9333ea',
+  '#0369a1',
+  '#a16207',
+  '#be185d',
+  '#334155',
+  '#0284c7',
+  '#d97706',
+  '#7e22ce'
 ]
 
 const toSlug = (value) =>
@@ -75,9 +92,9 @@ const hashString = (value) => {
 
 const getLegendKey = (calendarId, cardKind) => `${calendarId}:${cardKind}`
 
-const getLegendColor = (calendarId, cardKind) => {
+const getLegendFallbackColor = (calendarId, cardKind) => {
   const hashed = hashString(getLegendKey(calendarId, cardKind))
-  return LEGEND_COLOR_PALETTE[hashed % LEGEND_COLOR_PALETTE.length]
+  return DISTINCT_COLOR_PALETTE[hashed % DISTINCT_COLOR_PALETTE.length]
 }
 
 const EVENT_PREVIEW_LENGTH = 18
@@ -122,6 +139,31 @@ function App() {
     accumulator[calendarId][kind] = (accumulator[calendarId][kind] || 0) + 1
     return accumulator
   }, {})
+
+  const legendColorByKey = useMemo(() => {
+    const assigned = {}
+    let paletteIndex = 0
+
+    const orderedCalendarIds = calendars
+      .map((calendarItem) => String(calendarItem.id))
+      .filter((calendarId) => Boolean(calendarTypeCounts[calendarId]))
+
+    orderedCalendarIds.forEach((calendarId) => {
+      const typeCounts = calendarTypeCounts[calendarId]
+      const sortedKinds = Object.keys(typeCounts).sort((left, right) => left.localeCompare(right))
+      sortedKinds.forEach((kind) => {
+        assigned[getLegendKey(calendarId, kind)] =
+          DISTINCT_COLOR_PALETTE[paletteIndex % DISTINCT_COLOR_PALETTE.length]
+        paletteIndex += 1
+      })
+    })
+
+    return assigned
+  }, [calendarTypeCounts, calendars])
+
+  const getLegendColor = (calendarId, cardKind) =>
+    legendColorByKey[getLegendKey(calendarId, cardKind)] ||
+    getLegendFallbackColor(calendarId, cardKind)
 
   const visibleEvents = events.filter((eventItem) => {
     const legendKey = getLegendKey(eventItem.calendarId, eventItem.cardKind)
